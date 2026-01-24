@@ -1,0 +1,5 @@
+{
+  "name": "GFO",
+  "description": "A real-time social deduction party game. Find the player who doesn't know the secret word. Host chooses the words manually.",
+  "requestFramePermissions": []
+}
