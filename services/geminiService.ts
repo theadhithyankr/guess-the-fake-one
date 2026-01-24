@@ -1,7 +1,25 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-// We use a safe default if no key is provided in the UI, but the UI allows user input
-let apiKey = process.env.API_KEY || '';
+// Safely retrieve environment variable or default to empty
+const getEnvApiKey = () => {
+  try {
+    // Check if process is defined (Node/Webpack)
+    if (typeof process !== 'undefined' && process.env) {
+      return process.env.API_KEY || '';
+    }
+    // Check if import.meta.env is defined (Vite)
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // @ts-ignore
+      return import.meta.env.VITE_API_KEY || '';
+    }
+  } catch (e) {
+    // Ignore errors
+  }
+  return '';
+};
+
+let apiKey = getEnvApiKey();
 
 export const setGeminiKey = (key: string) => {
   apiKey = key;
@@ -11,7 +29,9 @@ export const getGeminiKey = () => apiKey;
 
 export const generateWordPair = async (topic: string): Promise<{ secretWord: string; impostorWord: string }> => {
   if (!apiKey) {
-    throw new Error("API Key missing");
+    // Fallback logic if no key is present, allows game to proceed without AI
+    console.warn("API Key missing, using default words");
+    return { secretWord: "Beach", impostorWord: "Desert" };
   }
 
   const ai = new GoogleGenAI({ apiKey });
