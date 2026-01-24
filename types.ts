@@ -28,6 +28,7 @@ export interface GameState {
   settings: {
     impostorCount: number;
     timerSeconds: number;
+    offlineMode: boolean; // New toggle
   };
   winner: 'IMPOSTOR' | 'CREW' | null;
 }
@@ -38,4 +39,5 @@ export interface GameStore {
   getGame: (roomCode: string) => Promise<GameState | null>;
   updateGame: (roomCode: string, updates: Partial<GameState>) => Promise<void>;
   subscribe: (roomCode: string, callback: (game: GameState) => void) => () => void;
+  transferHost: (roomCode: string, newHostId: string) => Promise<void>;
 }

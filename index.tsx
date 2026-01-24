@@ -9,6 +9,8 @@ const UserIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-
 const CrownIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>;
 const MegaphoneIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 3a1 1 0 00-1.447-.894L8.763 6H5a3 3 0 000 6h.28l1.771 5.316A1 1 0 008 18h1a1 1 0 001-1v-4.382l6.553 3.276A1 1 0 0018 15V3z" clipRule="evenodd" /></svg>;
 const ChatIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>;
+const SwapIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>;
+const FingerPrintIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.131A8 8 0 008 2.855C3.081 2.855 0 5.714 0 10c0 1.992.516 3.89 1.461 5.652L3.212 14" /></svg>;
 
 // Helper for deterministic color
 const getAvatarColor = (name: string) => {
@@ -35,6 +37,7 @@ const App = () => {
   
   // UI State
   const [selectedVoteId, setSelectedVoteId] = useState<string | null>(null);
+  const [manualImpostorIds, setManualImpostorIds] = useState<Set<string>>(new Set());
 
   // Form States
   const [playerName, setPlayerName] = useState('');
@@ -48,12 +51,17 @@ const App = () => {
   // Host Settings
   const [impostorCount, setImpostorCount] = useState(1);
   const [timerSeconds, setTimerSeconds] = useState(30);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   // Subscribe to game updates
   useEffect(() => {
     if (gameState?.roomCode) {
       const unsubscribe = gameService.subscribe(gameState.roomCode, (updatedGame) => {
         setGameState(updatedGame);
+        // Sync settings for non-hosts
+        setImpostorCount(updatedGame.settings.impostorCount);
+        setTimerSeconds(updatedGame.settings.timerSeconds);
+        setIsOfflineMode(updatedGame.settings.offlineMode);
       });
       return unsubscribe;
     }
@@ -109,34 +117,67 @@ const App = () => {
     }
   };
 
+  const handleTransferHost = async (newHostId: string) => {
+    if (!gameState) return;
+    try {
+      await gameService.transferHost(gameState.roomCode, newHostId);
+    } catch (e) {
+      console.error("Failed to transfer host", e);
+    }
+  };
+
+  const toggleManualImpostor = (playerId: string) => {
+    setManualImpostorIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(playerId)) {
+        newSet.delete(playerId);
+      } else {
+        newSet.add(playerId);
+      }
+      return newSet;
+    });
+  };
+
   const handleStartGame = async () => {
     if (!gameState) return;
     if (!hostSecretWord.trim() || !hostImpostorWord.trim()) {
       return setErrorMsg('Please enter both words');
     }
 
-    if (gameState.players.length < 3) {
-      return setErrorMsg('Need at least 3 players to start');
-    }
-
-    if (impostorCount === 2 && gameState.players.length < 5) {
-      return setErrorMsg('Need at least 5 players for 2 impostors');
+    const playingPlayers = gameState.players.filter(p => !p.isHost);
+    if (playingPlayers.length < 2) {
+      return setErrorMsg('Need at least 2 players (excluding Host) to start');
     }
 
     // 1. Assign Impostors
-    const players = [...gameState.players];
-    // Create shuffled indices
-    const indices = Array.from({ length: players.length }, (_, i) => i);
-    for (let i = indices.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [indices[i], indices[j]] = [indices[j], indices[i]];
-    }
-    
-    const impostorIndices = new Set(indices.slice(0, impostorCount));
+    let updatedPlayers = [...gameState.players];
+    const playingIndices = updatedPlayers
+      .map((p, idx) => ({ ...p, originalIdx: idx }))
+      .filter(p => !p.isHost);
 
-    const updatedPlayers = players.map((p, idx) => ({
+    let finalImpostorIds = new Set<string>();
+
+    if (manualImpostorIds.size > 0) {
+      // Use manual selection
+      finalImpostorIds = manualImpostorIds;
+    } else {
+      // Random selection among PLAYERS (not host)
+      const indices = Array.from({ length: playingIndices.length }, (_, i) => i);
+      // Shuffle
+      for (let i = indices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+      }
+      // Pick first N
+      const selectedIndices = indices.slice(0, impostorCount);
+      selectedIndices.forEach(idx => {
+         finalImpostorIds.add(playingIndices[idx].id);
+      });
+    }
+
+    updatedPlayers = updatedPlayers.map(p => ({
       ...p,
-      isImpostor: impostorIndices.has(idx),
+      isImpostor: finalImpostorIds.has(p.id),
       isReady: false,
       description: '',
       votedForId: null
@@ -151,25 +192,44 @@ const App = () => {
       turnIndex: 0,
       settings: {
         impostorCount,
-        timerSeconds
+        timerSeconds,
+        offlineMode: isOfflineMode
       }
     });
   };
 
   const handleReady = async () => {
     if (!gameState || !localPlayer) return;
+    
+    // Host doesn't need to ready up if they aren't playing
+    const isHost = gameState.players.find(p => p.id === localPlayer.id)?.isHost;
+    if (isHost) return;
+
     const updatedPlayers = gameState.players.map(p => 
       p.id === localPlayer.id ? { ...p, isReady: true } : p
     );
     
-    // Check if all ready
-    const allReady = updatedPlayers.every(p => p.isReady);
+    // Check if all non-host players ready
+    const playingPlayers = updatedPlayers.filter(p => !p.isHost);
+    const allReady = playingPlayers.every(p => p.isReady);
     
     await gameService.updateGame(gameState.roomCode, {
       players: updatedPlayers,
+      // If offline mode, we stay in REVEAL effectively (or go to a dummy describing phase) 
+      // but UI handles it differently. 
+      // Let's move to DESCRIBING but UI checks offline flag.
       phase: allReady ? Phase.DESCRIBING : gameState.phase
     });
   };
+
+  const handleOfflineEndGame = async () => {
+    if (!gameState) return;
+    await gameService.updateGame(gameState.roomCode, {
+      phase: Phase.RESULTS,
+      // No winner calculation, just show roles
+      winner: null 
+    });
+  }
 
   const handleSubmitDescription = async () => {
     if (!gameState || !localPlayer || !descriptionText.trim()) return;
@@ -178,7 +238,26 @@ const App = () => {
       p.id === localPlayer.id ? { ...p, description: descriptionText } : p
     );
 
-    const nextTurnIndex = gameState.turnIndex + 1;
+    // Find next player who is NOT the host
+    let nextTurnIndex = gameState.turnIndex + 1;
+    let loopCount = 0;
+    
+    // Loop until we find a valid player or exhaust list
+    while (loopCount < gameState.players.length) {
+       // Check boundary
+       if (nextTurnIndex >= gameState.players.length) {
+          // Round over
+          break;
+       }
+       const nextPlayer = gameState.players[nextTurnIndex];
+       if (nextPlayer.isHost) {
+         nextTurnIndex++;
+       } else {
+         break;
+       }
+       loopCount++;
+    }
+
     const isRoundOver = nextTurnIndex >= gameState.players.length;
 
     await gameService.updateGame(gameState.roomCode, {
@@ -197,26 +276,26 @@ const App = () => {
       p.id === localPlayer.id ? { ...p, votedForId: selectedVoteId } : p
     );
 
-    // 2. Count votes
+    // 2. Count votes (only from non-hosts)
+    const activeVoters = updatedPlayers.filter(p => !p.isHost);
     const voteCounts: Record<string, number> = {};
     let votesCastCount = 0;
     
-    updatedPlayers.forEach(p => {
+    activeVoters.forEach(p => {
       if (p.votedForId) {
         voteCounts[p.votedForId] = (voteCounts[p.votedForId] || 0) + 1;
         votesCastCount++;
       }
     });
 
-    const totalPlayers = updatedPlayers.length;
+    const totalVoters = activeVoters.length;
     // Majority rule: > 50%
-    const majorityThreshold = Math.floor(totalPlayers / 2) + 1;
+    const majorityThreshold = Math.floor(totalVoters / 2) + 1;
 
     let maxVotes = 0;
     let mostVotedPlayerId: string | null = null;
     let isTie = false;
 
-    // Determine current leader
     Object.entries(voteCounts).forEach(([pid, count]) => {
       if (count > maxVotes) {
         maxVotes = count;
@@ -227,22 +306,17 @@ const App = () => {
       }
     });
 
-    // 3. Check conditions to end voting
-    // End if everyone voted OR if someone already has an insurmountable majority
     const hasMajority = maxVotes >= majorityThreshold;
-    const allVoted = votesCastCount === totalPlayers;
+    const allVoted = votesCastCount === totalVoters;
 
     let winner: 'IMPOSTOR' | 'CREW' | null = null;
     let nextPhase = Phase.VOTING;
 
     if (hasMajority || allVoted) {
       nextPhase = Phase.RESULTS;
-      
       const impostors = updatedPlayers.filter(p => p.isImpostor);
       const impostorIds = new Set(impostors.map(p => p.id));
       
-      // Crew wins if they voted out an impostor and it wasn't a tie
-      // If there's a tie at the end, default to Impostor win (Crew failed to agree)
       if (!isTie && mostVotedPlayerId && impostorIds.has(mostVotedPlayerId)) {
         winner = 'CREW';
       } else {
@@ -276,6 +350,7 @@ const App = () => {
     });
     setHostSecretWord('');
     setHostImpostorWord('');
+    setManualImpostorIds(new Set());
   };
 
   // --- Views ---
@@ -290,7 +365,7 @@ const App = () => {
             </h1>
             <p className="text-neutral-400">Join friends and find out who's faking it.</p>
           </div>
-
+          {/* ... Input Fields (same as before) ... */}
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-neutral-400 mb-1">Your Name</label>
@@ -319,16 +394,16 @@ const App = () => {
               <input
                 type="text"
                 value={roomCodeInput}
-                onChange={(e) => setRoomCodeInput(e.target.value)}
-                className="flex-1 bg-black border border-neutral-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-red-600 outline-none transition uppercase placeholder-neutral-600"
-                placeholder="ROOM CODE"
+                onChange={(e) => setRoomCodeInput(e.target.value.toUpperCase().slice(0, 4))}
+                maxLength={4}
+                className="flex-1 bg-black border border-neutral-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-red-600 outline-none transition uppercase placeholder-neutral-600 font-mono tracking-widest text-center"
+                placeholder="CODE"
               />
               <Button variant="secondary" onClick={handleJoinGame} disabled={isLoading}>
                 {isLoading ? '...' : 'Join'}
               </Button>
             </div>
           </div>
-          
           {errorMsg && (
             <div className="p-3 bg-red-950/40 border border-red-900/50 rounded-lg text-red-200 text-sm text-center">
               {errorMsg}
@@ -372,47 +447,87 @@ const App = () => {
                 {gameState.players.map(p => {
                   const isMe = p.id === localPlayer.id;
                   const isGameHost = p.isHost;
+                  const isManualImp = manualImpostorIds.has(p.id);
                   
                   return (
-                    <div key={p.id} className={`flex items-center justify-between p-3 rounded-xl border transition-all ${isMe ? 'bg-neutral-800/80 border-red-500/50 shadow-[0_0_15px_rgba(220,38,38,0.1)]' : 'bg-black/40 border-neutral-800'}`}>
-                      <div className="flex items-center gap-4">
+                    <div key={p.id} 
+                      className={`flex items-center justify-between p-3 rounded-xl border transition-all 
+                      ${isMe ? 'bg-neutral-800/80 border-red-500/50 shadow-[0_0_15px_rgba(220,38,38,0.1)]' : 'bg-black/40 border-neutral-800'}
+                      ${isManualImp ? 'border-red-600 bg-red-900/20' : ''}
+                      `}
+                      onClick={() => isHost && !isGameHost ? toggleManualImpostor(p.id) : null}
+                    >
+                      <div className="flex items-center gap-4 flex-1">
                         {/* Avatar */}
                         <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${getAvatarColor(p.name)} p-0.5 shadow-lg relative shrink-0`}>
                            <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center relative overflow-hidden">
                                <span className="text-lg font-black text-white z-10 select-none">{p.name[0].toUpperCase()}</span>
-                               {/* Decorative gloss */}
-                               <div className="absolute top-0 left-0 w-full h-1/2 bg-white/10 rounded-t-full"></div>
                            </div>
                            {isGameHost && (
                                <div className="absolute -top-1 -right-1 bg-yellow-500 text-yellow-950 rounded-full p-1 shadow-lg border border-neutral-900 flex items-center justify-center">
                                    <CrownIcon />
                                </div>
                            )}
+                           {isHost && isManualImp && (
+                             <div className="absolute -bottom-1 -right-1 bg-red-600 text-white rounded-full p-1 shadow-lg border border-neutral-900 flex items-center justify-center">
+                                 <FingerPrintIcon />
+                             </div>
+                           )}
                         </div>
                         
                         <div className="flex flex-col">
                             <div className="flex items-center gap-2">
-                                <span className={`font-bold truncate max-w-[150px] ${isMe ? 'text-white text-lg' : 'text-neutral-300'}`}>
+                                <span className={`font-bold truncate max-w-[120px] ${isMe ? 'text-white text-lg' : 'text-neutral-300'}`}>
                                     {p.name}
                                 </span>
                                 {isMe && <span className="bg-red-900/50 text-red-200 text-[10px] font-bold px-1.5 py-0.5 rounded border border-red-800">YOU</span>}
-                                {isGameHost && <span className="bg-yellow-900/30 text-yellow-500 text-[10px] font-bold px-1.5 py-0.5 rounded border border-yellow-800/50">HOST</span>}
                             </div>
                             <span className="text-xs text-neutral-500">
                                 {isGameHost ? 'Game Master' : 'Player'}
                             </span>
                         </div>
                       </div>
+
+                      {isHost && !isGameHost && (
+                         <button 
+                           onClick={(e) => {
+                             e.stopPropagation();
+                             handleTransferHost(p.id);
+                           }}
+                           className="p-2 text-neutral-500 hover:text-yellow-500 transition-colors"
+                           title="Make Host"
+                         >
+                           <SwapIcon />
+                         </button>
+                      )}
                     </div>
                   );
                 })}
               </div>
+              {isHost && (
+                <p className="text-xs text-neutral-500 mt-2 text-center italic">
+                  Tap a player to manually mark as Impostor
+                </p>
+              )}
             </div>
 
             {isHost ? (
                <div className="bg-neutral-900 rounded-xl p-6 border border-red-900/30 shadow-xl ring-1 ring-red-900/20">
                  <h2 className="text-xl font-bold mb-4 text-red-500">Game Setup</h2>
                  <div className="space-y-4">
+                   <div className="flex items-center justify-between bg-black p-3 rounded-lg border border-neutral-700">
+                     <div>
+                       <div className="text-sm font-bold text-white">Offline Mode</div>
+                       <div className="text-xs text-neutral-500">Words assigned, but no in-app turns</div>
+                     </div>
+                     <button 
+                       onClick={() => setIsOfflineMode(!isOfflineMode)}
+                       className={`w-12 h-6 rounded-full p-1 transition-colors ${isOfflineMode ? 'bg-red-600' : 'bg-neutral-700'}`}
+                     >
+                       <div className={`w-4 h-4 rounded-full bg-white transition-transform ${isOfflineMode ? 'translate-x-6' : 'translate-x-0'}`} />
+                     </button>
+                   </div>
+
                    <div>
                      <label className="block text-sm text-neutral-400 mb-1">Secret Word (Crew)</label>
                      <input 
@@ -434,6 +549,7 @@ const App = () => {
                      />
                    </div>
 
+                   {!isOfflineMode && (
                    <div className="grid grid-cols-2 gap-4">
                      <div>
                        <label className="block text-sm text-neutral-400 mb-1">Impostors</label>
@@ -467,6 +583,7 @@ const App = () => {
                        </select>
                      </div>
                    </div>
+                   )}
                    
                    {errorMsg && <p className="text-red-400 text-sm">{errorMsg}</p>}
                    
@@ -477,7 +594,7 @@ const App = () => {
                </div>
             ) : (
               <div className="text-center py-8 text-neutral-500 animate-pulse">
-                Waiting for host to start the game...
+                {isOfflineMode ? 'Host has enabled Offline Mode' : 'Waiting for host to start the game...'}
               </div>
             )}
           </div>
@@ -492,10 +609,36 @@ const App = () => {
                {/* Identity Card Logic */}
                {(() => {
                  const me = gameState.players.find(p => p.id === localPlayer.id);
+                 if (me?.isHost) {
+                   return (
+                     <div className="absolute inset-0 rounded-2xl p-8 flex flex-col items-center justify-center border-4 border-yellow-500/50 bg-neutral-900 shadow-[0_0_30px_rgba(234,179,8,0.1)]">
+                        <CrownIcon />
+                        <h1 className="text-3xl font-black text-yellow-500 mt-4 mb-2">GAME MASTER</h1>
+                        <p className="text-yellow-200/70 mb-6">You are moderating this game.</p>
+                        
+                        <div className="w-full bg-black/50 p-4 rounded-lg text-left space-y-2">
+                           <div className="flex justify-between text-sm">
+                             <span className="text-neutral-500">Secret:</span>
+                             <span className="text-blue-400 font-bold">{gameState.secretWord}</span>
+                           </div>
+                           <div className="flex justify-between text-sm">
+                             <span className="text-neutral-500">Impostor:</span>
+                             <span className="text-red-400 font-bold">{gameState.impostorWord}</span>
+                           </div>
+                           <div className="pt-2 border-t border-neutral-700">
+                             <span className="text-neutral-500 text-xs block mb-1">IMPOSTORS:</span>
+                             {gameState.players.filter(p => p.isImpostor).map(p => (
+                               <span key={p.id} className="inline-block bg-red-900/50 text-red-200 text-xs px-2 py-1 rounded mr-1 border border-red-800">
+                                 {p.name}
+                               </span>
+                             ))}
+                           </div>
+                        </div>
+                     </div>
+                   );
+                 }
+
                  const isImp = me?.isImpostor;
-                 
-                 // We keep Blue for crew/innocence concept, but style it to fit dark theme
-                 // Impostor gets the full Red treatment
                  return (
                    <div className={`absolute inset-0 rounded-2xl p-8 flex flex-col items-center justify-center border-4 bg-neutral-900 ${isImp ? 'border-red-600 shadow-[0_0_30px_rgba(220,38,38,0.2)]' : 'border-blue-500/50 shadow-[0_0_30px_rgba(59,130,246,0.1)]'}`}>
                       <div className="uppercase tracking-widest text-sm font-bold mb-4 text-neutral-500">
@@ -524,116 +667,140 @@ const App = () => {
                })()}
             </div>
 
-            <Button 
-              onClick={handleReady} 
-              disabled={gameState.players.find(p => p.id === localPlayer.id)?.isReady}
-              className={gameState.players.find(p => p.id === localPlayer.id)?.isReady ? 'opacity-50 grayscale' : 'animate-bounce'}
-            >
-              {gameState.players.find(p => p.id === localPlayer.id)?.isReady ? 'Waiting for others...' : "I'm Ready"}
-            </Button>
+            {!isHost ? (
+              <Button 
+                onClick={handleReady} 
+                disabled={gameState.players.find(p => p.id === localPlayer.id)?.isReady}
+                className={gameState.players.find(p => p.id === localPlayer.id)?.isReady ? 'opacity-50 grayscale' : 'animate-bounce'}
+              >
+                {gameState.players.find(p => p.id === localPlayer.id)?.isReady ? 'Waiting for others...' : "I'm Ready"}
+              </Button>
+            ) : (
+              <div className="text-neutral-400 animate-pulse">Waiting for players to ready up...</div>
+            )}
             
             <div className="text-sm text-neutral-500">
-              {gameState.players.filter(p => p.isReady).length} / {gameState.players.length} players ready
+              {gameState.players.filter(p => p.isReady).length} / {gameState.players.filter(p => !p.isHost).length} players ready
             </div>
           </div>
         )}
 
-        {/* DESCRIBING PHASE */}
+        {/* DESCRIBING PHASE (Online) OR OFFLINE PLAY */}
         {gameState.phase === Phase.DESCRIBING && (
-          <div className="space-y-6">
-            {/* Status Bar */}
-            <div className="bg-neutral-900 p-4 rounded-xl flex items-center justify-between border border-neutral-800">
-              <div>
-                <span className="text-neutral-400 text-sm">Round 1</span>
-                {gameState.settings?.timerSeconds > 0 && (
-                   <span className="ml-2 text-xs text-neutral-500 border border-neutral-700 px-1 rounded">
-                     {gameState.settings.timerSeconds}s
-                   </span>
-                )}
+          isOfflineMode ? (
+            <div className="flex flex-col items-center justify-center min-h-[50vh] text-center space-y-6">
+              <div className="w-20 h-20 bg-green-900/20 rounded-full flex items-center justify-center animate-pulse">
+                <MegaphoneIcon />
               </div>
-              <div className="flex gap-1">
-                {gameState.players.map((_, idx) => (
-                   <div key={idx} className={`h-2 w-8 rounded-full ${idx < gameState.turnIndex ? 'bg-neutral-600' : idx === gameState.turnIndex ? 'bg-red-600 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.5)]' : 'bg-neutral-800'}`} />
-                ))}
-              </div>
+              <h2 className="text-2xl font-bold text-white">Game in Progress</h2>
+              <p className="text-neutral-400 max-w-xs mx-auto">
+                Players are discussing offline. Voting will happen in real life.
+              </p>
+              
+              {isHost && (
+                <div className="mt-8 bg-neutral-900 p-6 rounded-xl border border-neutral-800 w-full">
+                   <h3 className="text-lg font-bold text-red-500 mb-4">Game Master Controls</h3>
+                   <Button variant="danger" fullWidth onClick={handleOfflineEndGame}>
+                     End Game & Reveal Roles
+                   </Button>
+                </div>
+              )}
             </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Status Bar */}
+              <div className="bg-neutral-900 p-4 rounded-xl flex items-center justify-between border border-neutral-800">
+                <div>
+                  <span className="text-neutral-400 text-sm">Round 1</span>
+                  {gameState.settings?.timerSeconds > 0 && (
+                    <span className="ml-2 text-xs text-neutral-500 border border-neutral-700 px-1 rounded">
+                      {gameState.settings.timerSeconds}s
+                    </span>
+                  )}
+                </div>
+                {/* Visual Turn Indicator */}
+                <div className="flex gap-1 overflow-hidden max-w-[150px]">
+                  {gameState.players.filter(p => !p.isHost).map((_, idx) => (
+                    <div key={idx} className={`h-2 flex-1 min-w-[4px] rounded-full ${idx < gameState.turnIndex ? 'bg-neutral-600' : idx === gameState.turnIndex ? 'bg-red-600 animate-pulse' : 'bg-neutral-800'}`} />
+                  ))}
+                </div>
+              </div>
 
-            {/* Description Feed */}
-            <div className="space-y-4">
-              {gameState.players.map((p, idx) => {
-                 if (!p.description && idx !== gameState.turnIndex && idx > gameState.turnIndex) {
-                   return (
-                     <div key={p.id} className="opacity-30 flex items-center gap-3 p-3">
-                       <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center text-xs text-neutral-500">{p.name[0]}</div>
-                       <span className="text-sm text-neutral-500">Waiting...</span>
-                     </div>
-                   );
-                 }
-                 
-                 if (idx === gameState.turnIndex) {
+              {/* Description Feed */}
+              <div className="space-y-4">
+                {gameState.players.filter(p => !p.isHost).map((p, idx) => {
+                  if (!p.description && idx !== gameState.turnIndex && idx > gameState.turnIndex) {
                     return (
-                      <div key={p.id} className="bg-neutral-900 border border-red-900/50 p-4 rounded-xl shadow-lg transform scale-105 transition-all relative overflow-hidden">
-                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-600"></div>
-                        <div className="flex items-center gap-3 mb-3">
-                          <div className="w-8 h-8 rounded-full bg-red-900/50 flex items-center justify-center font-bold text-red-200 text-sm border border-red-700">{p.name[0]}</div>
-                          <span className="font-bold text-red-400">{p.name}'s Turn</span>
-                        </div>
-                        
-                        {p.id === localPlayer.id ? (
-                          <div className="flex gap-2">
-                             <input 
-                               type="text" 
-                               value={descriptionText}
-                               onChange={e => setDescriptionText(e.target.value)}
-                               className="flex-1 bg-black border border-neutral-700 rounded-lg px-3 py-2 outline-none focus:border-red-600 text-white"
-                               placeholder="Describe your word..."
-                               autoFocus
-                             />
-                             <Button onClick={handleSubmitDescription} disabled={!descriptionText.trim()} className="py-2 px-4">Send</Button>
-                          </div>
-                        ) : (
-                          <div className="text-neutral-500 italic text-sm animate-pulse">Typing...</div>
-                        )}
+                      <div key={p.id} className="opacity-30 flex items-center gap-3 p-3">
+                        <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center text-xs text-neutral-500">{p.name[0]}</div>
+                        <span className="text-sm text-neutral-500">Waiting...</span>
                       </div>
                     );
-                 }
+                  }
+                  
+                  if (idx === gameState.turnIndex) {
+                      return (
+                        <div key={p.id} className="bg-neutral-900 border border-red-900/50 p-4 rounded-xl shadow-lg transform scale-105 transition-all relative overflow-hidden">
+                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-600"></div>
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="w-8 h-8 rounded-full bg-red-900/50 flex items-center justify-center font-bold text-red-200 text-sm border border-red-700">{p.name[0]}</div>
+                            <span className="font-bold text-red-400">{p.name}'s Turn</span>
+                          </div>
+                          
+                          {p.id === localPlayer.id ? (
+                            <div className="flex gap-2">
+                              <input 
+                                type="text" 
+                                value={descriptionText}
+                                onChange={e => setDescriptionText(e.target.value)}
+                                className="flex-1 bg-black border border-neutral-700 rounded-lg px-3 py-2 outline-none focus:border-red-600 text-white"
+                                placeholder="Describe your word..."
+                                autoFocus
+                              />
+                              <Button onClick={handleSubmitDescription} disabled={!descriptionText.trim()} className="py-2 px-4">Send</Button>
+                            </div>
+                          ) : (
+                            <div className="text-neutral-500 italic text-sm animate-pulse">Typing...</div>
+                          )}
+                        </div>
+                      );
+                  }
 
-                 return (
-                   <div key={p.id} className="bg-neutral-900/50 p-4 rounded-xl border border-neutral-800">
-                     <div className="flex items-center gap-2 mb-1">
-                       <span className="font-bold text-neutral-400 text-xs uppercase tracking-wider">{p.name}</span>
-                     </div>
-                     <p className="text-neutral-200 text-lg">"{p.description}"</p>
-                   </div>
-                 );
-              })}
+                  return (
+                    <div key={p.id} className="bg-neutral-900/50 p-4 rounded-xl border border-neutral-800">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-bold text-neutral-400 text-xs uppercase tracking-wider">{p.name}</span>
+                      </div>
+                      <p className="text-neutral-200 text-lg">"{p.description}"</p>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )
         )}
 
-        {/* VOTING PHASE (Among Us Style) */}
+        {/* VOTING PHASE (Responsive Fix) */}
         {gameState.phase === Phase.VOTING && (
-           <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-2 sm:p-4">
-             {/* Tablet Container */}
-             <div className="bg-[#2d3748] w-full max-w-4xl rounded-2xl border-[8px] border-[#4a5568] shadow-2xl overflow-hidden flex flex-col relative" style={{ maxHeight: '90vh' }}>
+           <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-0 sm:p-4">
+             {/* Container - Full Screen on mobile, Boxed on desktop */}
+             <div className="bg-[#2d3748] w-full h-full sm:h-auto sm:max-h-[90vh] sm:rounded-2xl border-none sm:border-[8px] sm:border-[#4a5568] shadow-2xl overflow-hidden flex flex-col relative">
                
                {/* Header */}
-               <div className="bg-[#2d3748] p-4 flex justify-between items-center border-b-2 border-[#4a5568]">
-                 <div className="text-white font-bold text-xl sm:text-2xl drop-shadow-md select-none">
+               <div className="bg-[#2d3748] p-4 flex justify-between items-center border-b-2 border-[#4a5568] shrink-0">
+                 <div className="text-white font-bold text-lg sm:text-2xl drop-shadow-md select-none">
                    Who Is The Impostor?
                  </div>
-                 <div className="text-neutral-400 hover:text-white cursor-pointer transition">
-                   <ChatIcon />
-                 </div>
+                 {isHost ? <div className="text-xs bg-yellow-600 px-2 py-1 rounded text-white">GM VIEW</div> : null}
                </div>
 
-               {/* Player Grid */}
-               <div className="flex-1 overflow-y-auto p-6 bg-slate-800 relative">
-                 {/* Starry background effect (optional simple dots) */}
+               {/* Player Grid - Flex on mobile for vertical scrolling, Grid on larger */}
+               <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-800 relative">
                  <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(white 1px, transparent 1px)', backgroundSize: '30px 30px' }}></div>
 
-                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 relative z-10">
-                   {gameState.players.map(p => {
+                 {/* Use flex-col for mobile to ensure easy scrolling and tapping */}
+                 <div className="flex flex-col sm:grid sm:grid-cols-2 gap-3 sm:gap-4 relative z-10 pb-20 sm:pb-0">
+                   {gameState.players.filter(p => !p.isHost).map(p => {
                      const isMe = p.id === localPlayer.id;
                      const hasVoted = p.votedForId !== null;
                      const isSelected = selectedVoteId === p.id;
@@ -645,26 +812,25 @@ const App = () => {
                      return (
                        <button
                          key={p.id}
-                         disabled={isMe || iHaveVoted}
+                         disabled={isMe || iHaveVoted || isHost}
                          onClick={() => setSelectedVoteId(p.id)}
                          className={`
-                           relative group w-full h-16 rounded-full flex items-center px-2 pr-4 transition-all duration-200 outline-none
-                           ${isMe ? 'opacity-60 cursor-default' : 'cursor-pointer hover:brightness-110 active:scale-[0.98]'}
-                           ${isSelected ? 'bg-green-100 ring-4 ring-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)]' : 'bg-[#c8dce7]'}
+                           relative group w-full p-2 sm:px-2 sm:pr-4 rounded-xl sm:rounded-full flex items-center transition-all duration-200 outline-none
+                           ${(isMe || isHost) ? 'opacity-60 cursor-default' : 'cursor-pointer hover:brightness-110 active:scale-[0.98]'}
+                           ${isSelected ? 'bg-green-100 ring-4 ring-green-500 shadow-lg' : 'bg-[#c8dce7]'}
                          `}
                        >
                          {/* Avatar Box */}
                          <div className={`
-                            h-12 w-12 rounded-l-full rounded-r-lg mr-3 flex items-center justify-center relative overflow-hidden shrink-0
+                            h-12 w-12 sm:h-12 sm:w-12 rounded-lg sm:rounded-l-full sm:rounded-r-lg mr-3 flex items-center justify-center relative overflow-hidden shrink-0
                             bg-gradient-to-br ${getAvatarColor(p.name)}
                          `}>
                              <span className="text-white font-black text-lg shadow-sm">{p.name[0]}</span>
                              
-                             {/* "I Voted" Badge - Shows for ANYONE who has voted */}
                              {hasVoted && (
                                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                                  <div className="bg-red-600 text-white text-[8px] font-bold px-1 py-0.5 rounded transform -rotate-12 border border-white shadow-sm">
-                                   I VOTED
+                                   VOTED
                                  </div>
                                </div>
                              )}
@@ -675,16 +841,7 @@ const App = () => {
                            <span className={`font-bold text-lg truncate ${isSelected ? 'text-green-800' : 'text-slate-900'}`}>
                              {p.name}
                            </span>
-                           
-                           {/* Indicators */}
-                           <div className="flex items-center gap-2">
-                             {isMe && (
-                               <div className="text-slate-500">
-                                 <MegaphoneIcon />
-                               </div>
-                             )}
-                             {/* Dead Icon placeholder could go here */}
-                           </div>
+                           {isMe && <div className="text-slate-500"><MegaphoneIcon /></div>}
                          </div>
                        </button>
                      );
@@ -694,33 +851,32 @@ const App = () => {
 
                {/* Footer / Action Bar */}
                <div className="bg-[#2d3748] p-4 border-t-2 border-[#4a5568] flex items-center justify-between shrink-0">
-                 {/* Left: Skip Button (Visual only for now) */}
-                 <button className="flex items-center gap-2 px-4 py-2 bg-slate-600 rounded-lg text-slate-300 font-bold text-sm cursor-not-allowed opacity-50 border-b-4 border-slate-800">
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>
-                    Skip Vote
-                 </button>
-
-                 {/* Center/Right: Confirm Vote & Timer */}
-                 <div className="flex items-center gap-4">
-                    {/* Confirm Button - Only appears when selected */}
-                    {selectedVoteId && !gameState.players.find(p => p.id === localPlayer.id)?.votedForId && (
-                      <button 
-                        onClick={handleConfirmVote}
-                        className="flex items-center gap-2 px-6 py-2 bg-green-500 hover:bg-green-400 text-white font-bold rounded-lg border-b-4 border-green-700 active:border-b-0 active:translate-y-1 transition-all shadow-lg animate-bounce"
-                      >
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
-                        CONFIRM
-                      </button>
-                    )}
-
-                    {gameState.players.find(p => p.id === localPlayer.id)?.votedForId && (
-                       <span className="text-green-400 font-bold animate-pulse">Vote Cast! Waiting...</span>
-                    )}
-
-                    <div className="text-white font-mono text-sm sm:text-base">
-                      Voting Ends in: <span className="text-red-400 font-bold">--s</span>
+                 {isHost ? (
+                    <div className="text-neutral-400 text-sm italic w-full text-center">
+                      Monitoring Voting Process...
                     </div>
-                 </div>
+                 ) : (
+                   <>
+                     <button className="flex items-center gap-2 px-3 py-2 bg-slate-600 rounded-lg text-slate-300 font-bold text-xs sm:text-sm cursor-not-allowed opacity-50 border-b-4 border-slate-800">
+                        Skip
+                     </button>
+
+                     <div className="flex items-center gap-4">
+                        {selectedVoteId && !gameState.players.find(p => p.id === localPlayer.id)?.votedForId && (
+                          <button 
+                            onClick={handleConfirmVote}
+                            className="flex items-center gap-2 px-4 sm:px-6 py-2 bg-green-500 hover:bg-green-400 text-white font-bold rounded-lg border-b-4 border-green-700 active:border-b-0 active:translate-y-1 transition-all shadow-lg animate-bounce"
+                          >
+                            VOTE
+                          </button>
+                        )}
+
+                        {gameState.players.find(p => p.id === localPlayer.id)?.votedForId && (
+                           <span className="text-green-400 font-bold text-xs sm:text-sm animate-pulse">Waiting...</span>
+                        )}
+                     </div>
+                   </>
+                 )}
                </div>
                
              </div>
@@ -730,11 +886,15 @@ const App = () => {
         {/* RESULTS PHASE */}
         {gameState.phase === Phase.RESULTS && (
           <div className="text-center space-y-8 pt-8">
-            <div className="relative inline-block">
-               <div className={`text-5xl font-black ${gameState.winner === 'CREW' ? 'text-blue-500' : 'text-red-600 drop-shadow-[0_0_15px_rgba(220,38,38,0.8)]'}`}>
-                 {gameState.winner === 'CREW' ? 'CREW WINS!' : 'IMPOSTOR WINS!'}
-               </div>
-            </div>
+            {isOfflineMode ? (
+              <div className="text-3xl font-black text-white">GAME OVER</div>
+            ) : (
+              <div className="relative inline-block">
+                <div className={`text-5xl font-black ${gameState.winner === 'CREW' ? 'text-blue-500' : 'text-red-600 drop-shadow-[0_0_15px_rgba(220,38,38,0.8)]'}`}>
+                  {gameState.winner === 'CREW' ? 'CREW WINS!' : 'IMPOSTOR WINS!'}
+                </div>
+              </div>
+            )}
 
             <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 max-w-sm mx-auto shadow-2xl">
                <div className="mb-6">

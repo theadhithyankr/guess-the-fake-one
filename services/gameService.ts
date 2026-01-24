@@ -1,12 +1,14 @@
 import { GameState, GameStore, Phase, Player } from '../types';
 import { supabase } from './supabaseClient';
 
-// Helper to generate random room code
+// Helper to generate random room code (4 alphabets)
 const generateRoomCode = () => {
-  const adjectives = ['BLUE', 'RED', 'FAST', 'COOL', 'NEON', 'CYBER'];
-  const nouns = ['TIGER', 'EAGLE', 'BEAR', 'WOLF', 'HAWK', 'LION'];
-  const num = Math.floor(Math.random() * 99) + 1;
-  return `${adjectives[Math.floor(Math.random() * adjectives.length)]}-${nouns[Math.floor(Math.random() * nouns.length)]}-${num}`;
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let result = '';
+  for (let i = 0; i < 4; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
 };
 
 // Mappers to convert between snake_case DB fields and camelCase TS objects
@@ -40,7 +42,7 @@ const mapDbToGame = (gameRow: any, playerRows: any[]): GameState => ({
   secretWord: gameRow.secret_word || '',
   impostorWord: gameRow.impostor_word || '',
   turnIndex: gameRow.turn_index,
-  settings: gameRow.settings || { impostorCount: 1, timerSeconds: 30 },
+  settings: gameRow.settings || { impostorCount: 1, timerSeconds: 30, offlineMode: false },
   winner: gameRow.winner,
   players: playerRows.map(mapDbToPlayer)
 });
@@ -57,7 +59,7 @@ export const gameService: GameStore = {
       secret_word: '',
       impostor_word: '',
       turn_index: 0,
-      settings: { impostorCount: 1, timerSeconds: 30 },
+      settings: { impostorCount: 1, timerSeconds: 30, offlineMode: false },
       winner: null
     };
 
@@ -103,10 +105,6 @@ export const gameService: GameStore = {
     if (game.phase !== Phase.LOBBY) return null;
 
     // 2. Check if player exists or create new
-    // We'll check local players in DB. 
-    // Ideally we might want to check duplicate names, but for now we proceed.
-    
-    // Check if a player with this name already exists in this room (re-join)
     const { data: existingPlayers } = await supabase
       .from('players')
       .select('*')
@@ -149,8 +147,6 @@ export const gameService: GameStore = {
   },
 
   updateGame: async (roomCode: string, updates: Partial<GameState>) => {
-    // This is the tricky part. We need to split updates between 'games' table and 'players' table.
-    
     const gameUpdates: any = {};
     if (updates.phase) gameUpdates.phase = updates.phase;
     if (updates.secretWord !== undefined) gameUpdates.secret_word = updates.secretWord;
@@ -180,10 +176,25 @@ export const gameService: GameStore = {
     await Promise.all(promises);
   },
 
+  transferHost: async (roomCode: string, newHostId: string) => {
+    // 1. Get current players
+    const { data: players } = await supabase
+      .from('players')
+      .select('*')
+      .eq('room_code', roomCode);
+
+    if (!players) return;
+
+    // 2. Set all to is_host = false, then new host to true
+    const updates = players.map(p => ({
+      ...p,
+      is_host: p.id === newHostId
+    }));
+
+    await supabase.from('players').upsert(updates);
+  },
+
   subscribe: (roomCode: string, callback: (game: GameState) => void) => {
-    // We need to fetch the full state whenever anything changes in the room.
-    // This is slightly inefficient but ensures consistency for this rapid MVP.
-    
     const fetchAndCallback = async () => {
       const game = await gameService.getGame(roomCode);
       if (game) callback(game);
@@ -213,7 +224,6 @@ export const gameService: GameStore = {
       )
       .subscribe();
 
-    // Initial fetch
     fetchAndCallback();
 
     return () => {
