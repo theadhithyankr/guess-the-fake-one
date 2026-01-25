@@ -60,41 +60,66 @@ const App = () => {
 
   // Auth & Rejoin Logic
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      handleSessionFound(session);
-    });
+    let mounted = true;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      // Only auto-update name if we are not already in a game
-      if (session?.user && !gameState) {
-        setPlayerName(session.user.user_metadata.full_name || '');
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [gameState]);
-
-  const handleSessionFound = async (session: Session | null) => {
-    setIsCheckingSession(true);
-    if (session?.user) {
-      setPlayerName(session.user.user_metadata.full_name || '');
+    const initSession = async () => {
+      // 1. Initial Session Check
       try {
-        // Attempt to auto-rejoin
-        const game = await gameService.resumeGame(session.user.id);
-        if (game) {
-          const me = game.players.find(p => p.id === session.user.id);
-          if (me) {
-             setLocalPlayer({ name: me.name, id: me.id });
-             setGameState(game);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (mounted) {
+          setSession(session);
+          if (session?.user) {
+            await handleSessionFound(session.user);
           }
         }
       } catch (e) {
-        console.error("Auto-rejoin failed", e);
+        console.error("Session check failed", e);
+      } finally {
+        if (mounted) setIsCheckingSession(false);
       }
+    };
+
+    initSession();
+
+    // 2. Auth State Listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return;
+      setSession(session);
+      
+      if (event === 'SIGNED_IN' && session?.user) {
+        // If they just signed in (e.g. Google popup), try to restore state or set name
+        setPlayerName(session.user.user_metadata.full_name || '');
+        // We do NOT call setIsCheckingSession(true) here to avoid flickering if it happens mid-use
+        // But we do attempt to sync game state
+        await handleSessionFound(session.user);
+      } else if (event === 'SIGNED_OUT') {
+        setGameState(null);
+        setLocalPlayer(null);
+        setPlayerName('');
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []); // Empty dependency array allows this to run only once on mount, preventing the loop
+
+  const handleSessionFound = async (user: any) => {
+    setPlayerName(user.user_metadata.full_name || '');
+    try {
+      // Attempt to auto-rejoin
+      const game = await gameService.resumeGame(user.id);
+      if (game) {
+        const me = game.players.find(p => p.id === user.id);
+        if (me) {
+           setLocalPlayer({ name: me.name, id: me.id });
+           setGameState(game);
+        }
+      }
+    } catch (e) {
+      console.error("Auto-rejoin failed", e);
     }
-    setIsCheckingSession(false);
   };
 
   const handleGoogleLogin = async () => {
@@ -145,8 +170,7 @@ const App = () => {
     try {
       const userId = session?.user?.id;
       const newGame = await gameService.createGame(playerName, userId);
-      // If we are logged in, we use our Auth ID. If guest, we use the ID returned by createGame service
-      // But wait, createGame returns the state. The player[0] is the host.
+      
       const myPlayer = newGame.players.find(p => p.isHost); 
       if (myPlayer) {
           setLocalPlayer({ name: playerName, id: myPlayer.id });
@@ -178,7 +202,6 @@ const App = () => {
              myPlayer = game.players.find(p => p.id === userId);
         } else {
              // Guest: Find by name (last matching)
-             // This is imperfect for guests with duplicate names but fine for MVP
              myPlayer = [...game.players].reverse().find(p => p.name === playerName);
         }
 
@@ -263,6 +286,8 @@ const App = () => {
     }));
 
     // Find the starting turn index (first non-host player)
+    // Note: The player list is sorted alphabetically by name in getGame.
+    // We assume updatedPlayers preserves that order.
     const firstPlayerIndex = updatedPlayers.findIndex(p => !p.isHost);
 
     // 2. Update Game State
@@ -322,6 +347,7 @@ const App = () => {
     let loopCount = 0;
     
     // Loop until we find a valid player or exhaust list
+    // This logic ensures we skip the host in the turn order
     while (loopCount < gameState.players.length) {
        // Check boundary FIRST
        if (nextTurnIndex >= gameState.players.length) {
@@ -337,7 +363,6 @@ const App = () => {
        loopCount++;
     }
 
-    // Double check round over condition: if we skipped the host and went out of bounds
     const isRoundOver = nextTurnIndex >= gameState.players.length;
 
     await gameService.updateGame(gameState.roomCode, {
