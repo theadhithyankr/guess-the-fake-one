@@ -48,9 +48,9 @@ const mapDbToGame = (gameRow: any, playerRows: any[]): GameState => ({
 });
 
 export const gameService: GameStore = {
-  createGame: async (hostName: string) => {
+  createGame: async (hostName: string, userId?: string) => {
     const roomCode = generateRoomCode();
-    const hostId = crypto.randomUUID();
+    const hostId = userId || crypto.randomUUID();
 
     // 1. Create Game
     const gameData = {
@@ -66,7 +66,7 @@ export const gameService: GameStore = {
     const { error: gameError } = await supabase.from('games').insert(gameData);
     if (gameError) throw new Error(gameError.message);
 
-    // 2. Create Host Player
+    // 2. Create Host Player (Upsert to handle if user was in another game)
     const playerData = {
       id: hostId,
       room_code: roomCode,
@@ -74,10 +74,12 @@ export const gameService: GameStore = {
       is_host: true,
       is_impostor: false,
       score: 0,
-      is_ready: false
+      is_ready: false,
+      description: '',
+      voted_for_id: null
     };
 
-    const { error: playerError } = await supabase.from('players').insert(playerData);
+    const { error: playerError } = await supabase.from('players').upsert(playerData);
     if (playerError) throw new Error(playerError.message);
 
     // Return initial state
@@ -93,7 +95,7 @@ export const gameService: GameStore = {
     };
   },
 
-  joinGame: async (roomCode: string, playerName: string) => {
+  joinGame: async (roomCode: string, playerName: string, userId?: string) => {
     // 1. Fetch Game
     const { data: game, error: gameError } = await supabase
       .from('games')
@@ -102,31 +104,72 @@ export const gameService: GameStore = {
       .single();
 
     if (gameError || !game) return null;
-    if (game.phase !== Phase.LOBBY) return null;
-
-    // 2. Check if player exists or create new
-    const { data: existingPlayers } = await supabase
-      .from('players')
-      .select('*')
-      .eq('room_code', roomCode);
-
-    const existingPlayer = existingPlayers?.find(p => p.name === playerName);
     
-    if (!existingPlayer) {
-       // Insert new player
-       const newPlayer = {
-         id: crypto.randomUUID(),
-         room_code: roomCode,
-         name: playerName,
-         is_host: false,
-         is_impostor: false,
-         is_ready: false
-       };
-       await supabase.from('players').insert(newPlayer);
+    // Allow joining during LOBBY, or Re-joining anytime if user exists
+    
+    // 2. Check if player exists or create new
+    if (userId) {
+        // Authenticated Logic
+        const { data: existing } = await supabase.from('players').select('*').eq('id', userId).single();
+        
+        if (existing && existing.room_code === roomCode) {
+             // REJOIN: Update name if changed, but keep state
+             if (existing.name !== playerName) {
+                 await supabase.from('players').update({ name: playerName }).eq('id', userId);
+             }
+        } else {
+             // NEW JOIN or MOVE ROOM: Reset state
+             // Only allow new joins if in LOBBY
+             if (game.phase !== Phase.LOBBY) {
+                // Unless we were already in, we can't join late
+                return null;
+             }
+
+             const newPlayer = {
+                 id: userId,
+                 room_code: roomCode,
+                 name: playerName,
+                 is_host: false,
+                 is_impostor: false,
+                 score: 0,
+                 is_ready: false,
+                 description: '',
+                 voted_for_id: null
+             };
+             await supabase.from('players').upsert(newPlayer);
+        }
+    } else {
+        // Guest Logic (Legacy/Fallback)
+        if (game.phase !== Phase.LOBBY) return null; // Guests can't rejoin smoothly yet
+        
+        const { data: existingPlayers } = await supabase.from('players').select('*').eq('room_code', roomCode);
+        const existingPlayer = existingPlayers?.find(p => p.name === playerName);
+        
+        if (!existingPlayer) {
+           const newPlayer = {
+             id: crypto.randomUUID(),
+             room_code: roomCode,
+             name: playerName,
+             is_host: false,
+             is_impostor: false,
+             is_ready: false
+           };
+           await supabase.from('players').insert(newPlayer);
+        }
     }
 
     // Return full game state
     return await gameService.getGame(roomCode);
+  },
+
+  resumeGame: async (userId: string) => {
+    // Check if this user is in any room
+    const { data: player } = await supabase.from('players').select('*').eq('id', userId).single();
+    
+    if (player && player.room_code) {
+      return await gameService.getGame(player.room_code);
+    }
+    return null;
   },
 
   getGame: async (roomCode: string) => {
@@ -138,10 +181,12 @@ export const gameService: GameStore = {
 
     if (!game) return null;
 
+    // SORT BY NAME to ensure consistent turn index logic across all clients
     const { data: players } = await supabase
       .from('players')
       .select('*')
-      .eq('room_code', roomCode);
+      .eq('room_code', roomCode)
+      .order('name', { ascending: true });
 
     return mapDbToGame(game, players || []);
   },

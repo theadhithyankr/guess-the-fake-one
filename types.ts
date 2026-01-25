@@ -28,14 +28,15 @@ export interface GameState {
   settings: {
     impostorCount: number;
     timerSeconds: number;
-    offlineMode: boolean; // New toggle
+    offlineMode: boolean;
   };
   winner: 'IMPOSTOR' | 'CREW' | null;
 }
 
 export interface GameStore {
-  createGame: (hostName: string) => Promise<GameState>;
-  joinGame: (roomCode: string, playerName: string) => Promise<GameState | null>;
+  createGame: (hostName: string, userId?: string) => Promise<GameState>;
+  joinGame: (roomCode: string, playerName: string, userId?: string) => Promise<GameState | null>;
+  resumeGame: (userId: string) => Promise<GameState | null>;
   getGame: (roomCode: string) => Promise<GameState | null>;
   updateGame: (roomCode: string, updates: Partial<GameState>) => Promise<void>;
   subscribe: (roomCode: string, callback: (game: GameState) => void) => () => void;
