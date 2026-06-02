@@ -1,20 +1,37 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Guess The Fake One
 
-# Run and deploy your AI Studio app
+Social deduction game where players identify the fake participant through prompts, voting, and bluffing.
 
-This contains everything you need to run your app locally.
+## Key Features
+- Social deduction game where players identify the fake participant through prompts, voting, and bluffing
+- Supabase integration is called out for the data, auth, or application state layer present in the codebase.
+- Organized UI components and screens make the main user flows visible from the project structure.
+- Package scripts provide reproducible development, build, and preview commands.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1rh_F3xbRHWWAMiA7MsPICyiEFX6opIIm
+## Tech Stack
+- JavaScript/TypeScript
+- React
+- Vite
+- Supabase
+- HTML/CSS
 
-## Run Locally
+## Project Structure
+- components - reusable UI and workflow components.
 
-**Prerequisites:**  Node.js
+## Setup and Run
+```bash
+git clone https://github.com/theadhithyankr/guess-the-fake-one.git
+cd guess-the-fake-one
+npm install
+npm run dev
+npm run build
+npm run preview
+```
 
+## What This Project Demonstrates
+- Building user-facing web applications with component-based UI and modern frontend tooling.
+- Integrating managed backend services for auth, persistence, realtime data, or app infrastructure.
+- Presenting project scope, setup, and technical choices clearly for reviewers and recruiters.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Repository
+- GitHub: https://github.com/theadhithyankr/guess-the-fake-one
