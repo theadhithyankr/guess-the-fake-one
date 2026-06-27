@@ -1,37 +1,68 @@
+<div align="center">
+
 # Guess The Fake One
 
-Social deduction game where players identify the fake participant through prompts, voting, and bluffing.
+Game where players identify the fake option among plausible choices.
+
+![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white) ![React](https://img.shields.io/badge/React-20232A?logo=react) ![Supabase](https://img.shields.io/badge/Supabase-3FCF8E?logo=supabase&logoColor=white)
+
+[Repository](https://github.com/theadhithyankr/guess-the-fake-one)
+
+</div>
+
+## Overview
+
+Guess The Fake One is a deduction game project in the TheAdhithyanKR/guess-the-fake-one repository. Social deduction game where players identify the fake participant through prompts, voting, and bluffing.
+
+The README was written from the repository contents, including its manifest files, source tree, and available project metadata. The primary manifest is $(System.Collections.Hashtable.Path), and the commands below are taken from its scripts.
 
 ## Key Features
-- Social deduction game where players identify the fake participant through prompts, voting, and bluffing
-- Supabase integration is called out for the data, auth, or application state layer present in the codebase.
-- Organized UI components and screens make the main user flows visible from the project structure.
-- Package scripts provide reproducible development, build, and preview commands.
+
+- Choice-based guessing loop
+- Fake-vs-real reveal mechanic
+- Lightweight interface for replayable rounds
+- Portfolio example of a simple social game concept
 
 ## Tech Stack
-- JavaScript/TypeScript
-- React
+
 - Vite
+- React
 - Supabase
-- HTML/CSS
 
 ## Project Structure
-- components - reusable UI and workflow components.
 
-## Setup and Run
-```bash
-git clone https://github.com/theadhithyankr/guess-the-fake-one.git
-cd guess-the-fake-one
+`	ext
+.
+|-- components/Button.tsx
+|-- index.html
+|-- index.tsx
+|-- metadata.json
+|-- package.json
+|-- README.md
+|-- services/gameService.ts
+|-- services/geminiService.ts
+|-- services/supabaseClient.ts
+|-- supabase_schema.sql
+|-- tsconfig.json
+|-- types.ts
+|-- vite.config.ts
+`
+
+## Setup
+
+`ash
 npm install
 npm run dev
-npm run build
-npm run preview
-```
+`
 
 ## What This Project Demonstrates
-- Building user-facing web applications with component-based UI and modern frontend tooling.
-- Integrating managed backend services for auth, persistence, realtime data, or app infrastructure.
-- Presenting project scope, setup, and technical choices clearly for reviewers and recruiters.
 
-## Repository
-- GitHub: https://github.com/theadhithyankr/guess-the-fake-one
+- Ability to turn a focused product idea into a working codebase
+- Practical use of the repository's chosen framework and tooling
+- Attention to deployable structure, repeatable setup, and portfolio-ready presentation
+- Project-specific implementation around deduction game
+
+## Links
+
+- Repository: [https://github.com/theadhithyankr/guess-the-fake-one](https://github.com/theadhithyankr/guess-the-fake-one)
+- Live demo: [https://gfo-indol.vercel.app](https://gfo-indol.vercel.app)
