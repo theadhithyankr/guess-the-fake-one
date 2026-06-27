@@ -14,7 +14,7 @@ Game where players identify the fake option among plausible choices.
 
 Guess The Fake One is a deduction game project in the TheAdhithyanKR/guess-the-fake-one repository. Social deduction game where players identify the fake participant through prompts, voting, and bluffing.
 
-The README was written from the repository contents, including its manifest files, source tree, and available project metadata. The primary manifest is $(@{Path=package.json; Json=}.Path), and the commands below are taken from its scripts.
+The README was written from the repository contents, including its manifest files, source tree, and available project metadata. The primary manifest is `package.json`, and the commands below are taken from its scripts.
 
 ## Key Features
 
